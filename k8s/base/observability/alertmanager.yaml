@@ -1,0 +1,198 @@
+---
+# PETPLAT-103: Alertmanager — receives alerts from Prometheus (linked via prometheus.yml alerting block)
+# Routes: critical → immediate, warning → batched every 5m
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: petclinic-observability
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      # Configure SMTP settings (replace with real values):
+      # smtp_smarthost: 'smtp.example.com:587'
+      # smtp_from: 'alertmanager@petclinic.example.com'
+      # smtp_auth_username: 'REPLACE_ME'
+      # smtp_auth_password: 'REPLACE_ME'
+
+    route:
+      receiver: default-receiver
+      group_by: ['alertname', 'job', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # Critical alerts → immediate notification (no batching)
+        - matchers:
+            - severity="critical"
+          receiver: critical-receiver
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 30m
+        # Warning alerts → batched every 5 minutes
+        - matchers:
+            - severity="warning"
+          receiver: warning-receiver
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+
+    receivers:
+      - name: default-receiver
+        # Webhook placeholder — replace with actual notification target
+        webhook_configs:
+          - url: 'http://localhost:5001/alerts'
+            send_resolved: true
+
+      - name: critical-receiver
+        # Replace with email or Slack config:
+        # email_configs:
+        #   - to: 'oncall@example.com'
+        #     send_resolved: true
+        # slack_configs:
+        #   - api_url: 'https://hooks.slack.com/services/REPLACE/ME'
+        #     channel: '#alerts-critical'
+        #     send_resolved: true
+        webhook_configs:
+          - url: 'http://localhost:5001/critical'
+            send_resolved: true
+
+      - name: warning-receiver
+        webhook_configs:
+          - url: 'http://localhost:5001/warning'
+            send_resolved: true
+
+    inhibit_rules:
+      # Suppress warning-severity alerts when the same alertname fires at critical
+      - source_matchers:
+          - severity="critical"
+        target_matchers:
+          - severity="warning"
+        equal: ['alertname', 'job']
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: petclinic-observability
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-storage
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: petclinic-observability
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp2
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: petclinic-observability
+    app.kubernetes.io/component: alerting
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/part-of: petclinic-observability
+        app.kubernetes.io/component: alerting
+    spec:
+      serviceAccountName: alertmanager
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.26.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --web.listen-address=:9093
+          ports:
+            - name: http
+              containerPort: 9093
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: storage
+              mountPath: /alertmanager
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: storage
+          persistentVolumeClaim:
+            claimName: alertmanager-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: petclinic-observability
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+      protocol: TCP

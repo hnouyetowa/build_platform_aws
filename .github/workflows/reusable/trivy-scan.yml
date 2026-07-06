@@ -1,0 +1,76 @@
+# PETPLAT-105: Reusable Trivy vulnerability scan workflow
+#
+# Scans a Docker image for vulnerabilities before pushing to ECR.
+# CRITICAL findings fail the pipeline. HIGH findings generate warnings.
+# Call from the application repo's build-push.yml:
+#
+#   jobs:
+#     scan:
+#       uses: {owner}/ratp-platform/.github/workflows/reusable/trivy-scan.yml@main
+#       with:
+#         image: "123456789.dkr.ecr.eu-central-1.amazonaws.com/petclinic-dev/api-gateway:abc1234"
+#         severity: "CRITICAL,HIGH"
+#         fail_on: "CRITICAL"
+
+name: Reusable Trivy Scan
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Fully-qualified image reference to scan (must be accessible from runner)"
+        type: string
+        required: true
+      severity:
+        description: "Comma-separated severity levels to include in the report"
+        type: string
+        default: "CRITICAL,HIGH"
+      fail_on:
+        description: "Severity level that causes the job to fail (CRITICAL recommended)"
+        type: string
+        default: "CRITICAL"
+      ignorefile:
+        description: "Path to .trivyignore file for accepted/known CVEs"
+        type: string
+        default: ".trivyignore"
+
+jobs:
+  scan:
+    name: Trivy image scan
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to GitHub Security tab
+
+    steps:
+      - name: Checkout (for .trivyignore)
+        uses: actions/checkout@v4
+
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.image }}
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: ${{ inputs.severity }}
+          exit-code: "0"          # don't fail here — we check manually below
+          ignore-unfixed: true
+          trivyignores: ${{ inputs.ignorefile }}
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+          category: "trivy-${{ inputs.image }}"
+
+      - name: Fail on CRITICAL vulnerabilities
+        run: |
+          trivy image \
+            --severity "${{ inputs.fail_on }}" \
+            --exit-code 1 \
+            --ignore-unfixed \
+            ${{ inputs.ignorefile != '' && format('--ignorefile {0}', inputs.ignorefile) || '' }} \
+            --no-progress \
+            "${{ inputs.image }}"

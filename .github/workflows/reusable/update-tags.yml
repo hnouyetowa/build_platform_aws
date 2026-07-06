@@ -1,0 +1,65 @@
+# PETPLAT-53: Reusable image tag update workflow
+#
+# Updates helm-values/{service}.yaml with a new image SHA using yq.
+# Commits and pushes the change to trigger ArgoCD sync.
+# Call from any workflow with:
+#
+#   jobs:
+#     update:
+#       uses: {owner}/ratp-platform/.github/workflows/reusable/update-tags.yml@main
+#       with:
+#         sha: "a1b2c3d"
+#         services: "customers-service visits-service"
+#       permissions:
+#         contents: write
+
+name: Reusable Update Image Tags
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: "7-character commit SHA to set as image.tag"
+        type: string
+        required: true
+      services:
+        description: "Space-separated list of service names whose tags to update"
+        type: string
+        required: true
+
+jobs:
+  update:
+    name: yq update + git commit
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install yq
+        uses: mikefarah/yq@v4.44.3
+
+      - name: Update image.tag in helm-values
+        run: |
+          SHA="${{ inputs.sha }}"
+          for service in ${{ inputs.services }}; do
+            FILE="helm-values/${service}.yaml"
+            [ -f "$FILE" ] || { echo "WARN: $FILE not found"; continue; }
+            yq -i ".image.tag = \"${SHA}\"" "$FILE"
+            echo "Updated $FILE → $SHA"
+          done
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add helm-values/
+          git diff --cached --quiet && { echo "Already up-to-date"; exit 0; }
+          git commit -m "ci: update image tags to ${{ inputs.sha }} (${{ inputs.services }})"
+          git push

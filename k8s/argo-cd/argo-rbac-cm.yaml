@@ -1,0 +1,64 @@
+# PETPLAT-115: ArgoCD RBAC configuration
+#
+# Roles:
+#   admin     — full access to all applications, clusters, repositories and settings
+#   developer — read-only on all apps; may sync petclinic-dev apps only (no prod sync)
+#
+# After apply, add users to groups:
+#   argocd account update-password --account <username>
+#   (or via SSO when configured)
+#
+# SSO integration is documented as a future enhancement (e.g., GitHub OAuth via Dex).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-rbac-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # policy.default is the role for authenticated users who have no explicit group mapping.
+  # "readonly" allows viewing all apps without any destructive actions.
+  policy.default: role:readonly
+
+  policy.csv: |
+    # ── Admin role — full access ──────────────────────────────────────────
+    p, role:admin, applications, *, */*, allow
+    p, role:admin, clusters,     *, *, allow
+    p, role:admin, repositories, *, *, allow
+    p, role:admin, projects,     *, *, allow
+    p, role:admin, accounts,     *, *, allow
+    p, role:admin, gpgkeys,      *, *, allow
+    p, role:admin, logs,         *, */*, allow
+    p, role:admin, exec,         *, */*, allow
+
+    # ── Developer role — read-only + dev-only sync ──────────────────────
+    # Read access to all applications and their details
+    p, role:developer, applications, get,    */*, allow
+    p, role:developer, logs,         get,    */*, allow
+
+    # Sync allowed only for petclinic-dev applications (pattern: default/*)
+    # The resource path for Application sync is: <project>/<app-name>
+    p, role:developer, applications, sync,   default/*-dev, allow
+
+    # Prod sync explicitly denied — principle of least privilege
+    p, role:developer, applications, sync,   default/*-prod, deny
+
+    # ── Group → role mappings ─────────────────────────────────────────────
+    # Assign local ArgoCD accounts or SSO groups to roles.
+    # Change usernames to match your team's accounts.
+    g, admin,     role:admin
+    g, developer, role:developer
+
+  # Optional: configure OIDC provider for SSO (GitHub, Google, LDAP, etc.)
+  # Uncomment and fill in when SSO is ready (PETPLAT-115 future enhancement):
+  # oidc.config: |
+  #   name: GitHub
+  #   issuer: https://token.actions.githubusercontent.com
+  #   clientID: <github-oauth-app-client-id>
+  #   clientSecret: $oidc.github.clientSecret
+  #   requestedScopes:
+  #     - openid
+  #     - profile
+  #     - email

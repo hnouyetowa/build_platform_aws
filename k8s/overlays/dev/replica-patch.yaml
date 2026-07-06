@@ -1,0 +1,5 @@
+# Dev overlay: all services run with 1 replica (cost optimization)
+# Translated to helm-values/dev.yaml: replicaCount: 1
+- op: replace
+  path: /spec/replicas
+  value: 1

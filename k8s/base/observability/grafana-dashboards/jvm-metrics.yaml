@@ -1,0 +1,93 @@
+---
+# PETPLAT-57: JVM Metrics Dashboard
+# Heap usage, GC pauses, thread count for all Spring Boot services
+# datasource.uid fixed to "prometheus" (enforcement rule)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-jvm
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: petclinic-observability
+    grafana_dashboard: "1"
+data:
+  petclinic-jvm.json: |
+    {
+      "id": null,
+      "uid": "petclinic-jvm",
+      "title": "Petclinic JVM Metrics",
+      "description": "Heap usage, GC pauses, thread count for all Spring Boot services",
+      "tags": ["petclinic", "jvm"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "time": {"from": "now-1h", "to": "now"},
+      "panels": [
+        {
+          "id": 1,
+          "title": "Heap Used / Max",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "bytes"}},
+          "targets": [
+            {
+              "expr": "jvm_memory_used_bytes{area=\"heap\",job=~\"api-gateway|customers-service|visits-service|vets-service|genai-service\"}",
+              "legendFormat": "{{job}} used",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            },
+            {
+              "expr": "jvm_memory_max_bytes{area=\"heap\",job=~\"api-gateway|customers-service|visits-service|vets-service|genai-service\"}",
+              "legendFormat": "{{job}} max",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "GC Pause Duration",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s"}},
+          "targets": [
+            {
+              "expr": "rate(jvm_gc_pause_seconds_sum{job=~\"api-gateway|customers-service|visits-service|vets-service|genai-service\"}[5m])",
+              "legendFormat": "{{job}} {{action}}",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Live Threads",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short"}},
+          "targets": [
+            {
+              "expr": "jvm_threads_live_threads{job=~\"api-gateway|customers-service|visits-service|vets-service|genai-service\"}",
+              "legendFormat": "{{job}}",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "CPU Usage",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit"}},
+          "targets": [
+            {
+              "expr": "process_cpu_usage{job=~\"api-gateway|customers-service|visits-service|vets-service|genai-service\"}",
+              "legendFormat": "{{job}}",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        }
+      ]
+    }

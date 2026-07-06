@@ -1,0 +1,110 @@
+---
+# PETPLAT-58: PrometheusRule CRD — 5 metric alert rules + 2 Loki alert rules
+#
+# This CRD requires the Prometheus Operator (monitoring.coreos.com/v1).
+# Without Prometheus Operator, alert rules are embedded in prometheus.yaml ConfigMap.
+# Apply the CRD schema first if needed:
+#   kubectl apply -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml
+#
+# The 5 PromQL rules match the Technical Spec exactly.
+# The 2 LogQL Loki rules are included for completeness and Loki Ruler compatibility.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: petclinic-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: petclinic-alerts
+    app.kubernetes.io/part-of: petclinic-observability
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    # ── 5 Prometheus metric alert rules (PETPLAT-58) ─────────────────────────
+    - name: petclinic.metric.rules
+      interval: 15s
+      rules:
+        - alert: ServiceDown
+          expr: up == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: petclinic
+          annotations:
+            summary: "Service {{ $labels.job }} is down"
+            description: "{{ $labels.instance }} has been unreachable for more than 1 minute."
+            runbook: "Check pod status: kubectl get pods -n petclinic-dev -l app.kubernetes.io/name={{ $labels.job }}"
+
+        - alert: HighErrorRate
+          expr: >
+            rate(http_server_requests_seconds_count{status=~"5.."}[5m])
+            /
+            rate(http_server_requests_seconds_count[5m]) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            team: petclinic
+          annotations:
+            summary: "High 5xx error rate on {{ $labels.job }}"
+            description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%) over the last 5 minutes."
+
+        - alert: HighLatency
+          expr: histogram_quantile(0.95, rate(http_server_requests_seconds_bucket[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            team: petclinic
+          annotations:
+            summary: "High p95 latency on {{ $labels.job }}"
+            description: "p95 latency is {{ $value | humanizeDuration }} (threshold: 500ms)."
+
+        - alert: PodRestartLoop
+          expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+          for: 0m
+          labels:
+            severity: critical
+            team: petclinic
+          annotations:
+            summary: "Pod {{ $labels.pod }} is in a restart loop"
+            description: "{{ $labels.namespace }}/{{ $labels.pod }} restarted {{ $value }} times in the last 15 minutes."
+            runbook: "Check pod logs: kubectl logs -n {{ $labels.namespace }} {{ $labels.pod }} --previous"
+
+        - alert: HighMemoryUsage
+          expr: container_memory_working_set_bytes / container_spec_memory_limit_bytes > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            team: petclinic
+          annotations:
+            summary: "High memory usage in pod {{ $labels.pod }}"
+            description: "Memory usage is {{ $value | humanizePercentage }} of the configured limit."
+
+    # ── 2 Loki LogQL alert rules (PETPLAT-59) ─────────────────────────────────
+    # These rules require the Loki Ruler component and are defined here for
+    # reference. They are also configured in the Loki ConfigMap (loki-rules.yaml).
+    - name: petclinic.loki.rules
+      interval: 15s
+      rules:
+        - alert: LogErrorSpike
+          expr: |
+            rate({namespace=~"petclinic-.*"} |= "ERROR" [5m]) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            team: petclinic
+            datasource: loki
+          annotations:
+            summary: "Log error spike in {{ $labels.namespace }}"
+            description: "Error log rate exceeds 0.5 lines/second in {{ $labels.namespace }} over 5 minutes."
+
+        - alert: JVMOutOfMemory
+          expr: |
+            count_over_time({namespace=~"petclinic-.*"} |= "OutOfMemoryError" [5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: petclinic
+            datasource: loki
+          annotations:
+            summary: "JVM OutOfMemoryError detected in {{ $labels.namespace }}"
+            description: "One or more pods in {{ $labels.namespace }} logged an OutOfMemoryError. Immediate action required."

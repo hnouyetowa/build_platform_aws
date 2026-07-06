@@ -1,0 +1,83 @@
+# Default values — overridden by helm-values/{service}.yaml and helm-values/{env}.yaml
+# ArgoCD merges: chart defaults < service values < environment values
+
+replicaCount: 1
+
+image:
+  repository: ""         # Set in per-service values file
+  tag: "latest"          # Updated by CI: yq -i ".image.tag = \"${SHA}\"" helm-values/{service}.yaml
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080             # Overridden per service (8888, 8761, 8080, 8081-8084, 9090)
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Environment variables injected into the container.
+# Merged with per-service values (env list is concatenated by Helm).
+env: []
+
+# Init containers to enforce startup order (busybox:1.36 health-check loops).
+initContainers: []
+
+# Pod-level security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false   # Spring Boot writes to /tmp
+  capabilities:
+    drop: ["ALL"]
+
+# Health probes — all Spring Boot services expose Actuator endpoints
+probes:
+  startup:
+    path: /actuator/health
+    port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+  readiness:
+    path: /actuator/health/readiness
+    port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  liveness:
+    path: /actuator/health/liveness
+    port: http
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Horizontal Pod Autoscaler (prod only — enabled via helm-values/prod.yaml)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+# Pod Disruption Budget (prod only)
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+serviceAccount:
+  create: true
+  automountToken: false
+  annotations: {}        # Add IRSA annotation here when needed

@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: discovery-server-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: petclinic
+    environment: dev
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ratp/ratp-platform.git
+    targetRevision: main
+    path: helm/ratp-service
+    helm:
+      releaseName: discovery-server
+      valueFiles:
+        - ../../helm-values/discovery-server.yaml
+        - ../../helm-values/dev.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ratp-dev
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true

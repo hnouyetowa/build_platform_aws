@@ -1,0 +1,12 @@
+apiVersion: v2
+name: ratp-service
+description: Generic Helm chart shared by all 8 microservices. Per-service configuration is in helm-values/{service}.yaml; per-environment overrides in helm-values/{dev,prod}.yaml.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - petclinic
+  - spring-boot
+  - microservices
+maintainers:
+  - name: petclinic-platform

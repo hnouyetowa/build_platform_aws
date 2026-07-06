@@ -1,0 +1,50 @@
+# Per-service Helm values for config-server
+# image.tag is updated by CI workflow (update-image-tags.yml) via yq:
+#   yq -i ".image.tag = \"${SHA}\"" helm-values/config-server.yaml
+image:
+  repository: "AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/ratp-dev/config-server"
+  tag: "latest"
+  pullPolicy: Always
+
+service:
+  port: 8888
+
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: "docker"
+  - name: GIT_REPO
+    valueFrom:
+      configMapKeyRef:
+        name: config-server-config
+        key: GIT_REPO
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Config Server has no init containers — it is the first service to start
+initContainers: []
+
+probes:
+  startup:
+    path: /actuator/health
+    port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+  readiness:
+    path: /actuator/health
+    port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+  liveness:
+    path: /actuator/health
+    port: http
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5

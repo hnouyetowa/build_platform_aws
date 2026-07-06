@@ -1,0 +1,33 @@
+image:
+  repository: "AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/ratp-dev/genai-service"
+  tag: "latest"
+  pullPolicy: Always
+
+service:
+  port: 8084
+
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: "docker"
+  - name: OPENAI_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: openai-api-key
+        key: OPENAI_API_KEY
+        optional: true  # defaults to "demo" if not set
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+initContainers:
+  - name: wait-for-config-server
+    image: busybox:1.36
+    command: ['sh', '-c', 'until wget -qO- http://config-server:8888/actuator/health; do echo "waiting..."; sleep 5; done']
+  - name: wait-for-discovery-server
+    image: busybox:1.36
+    command: ['sh', '-c', 'until wget -qO- http://discovery-server:8761/actuator/health; do echo "waiting..."; sleep 5; done']

@@ -1,0 +1,12 @@
+# Dev environment overrides — merged with per-service values by ArgoCD
+# All services: 1 replica, no HPA, no PDB
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+# Dev namespace (ArgoCD Application sets this in spec.destination.namespace)
+# namespace: petclinic-dev

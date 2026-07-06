@@ -1,0 +1,4 @@
+# Prod overlay: domain services (customers, visits, vets, genai, admin) run with 2 replicas
+- op: replace
+  path: /spec/replicas
+  value: 2

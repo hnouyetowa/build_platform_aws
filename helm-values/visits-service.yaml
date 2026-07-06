@@ -1,0 +1,37 @@
+image:
+  repository: "AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/ratp-dev/visits-service"
+  tag: "latest"
+  pullPolicy: Always
+
+service:
+  port: 8082
+
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: "docker,mysql"
+  - name: SPRING_DATASOURCE_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: rds-credentials
+        key: username
+  - name: SPRING_DATASOURCE_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: rds-credentials
+        key: password
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+initContainers:
+  - name: wait-for-config-server
+    image: busybox:1.36
+    command: ['sh', '-c', 'until wget -qO- http://config-server:8888/actuator/health; do echo "waiting..."; sleep 5; done']
+  - name: wait-for-discovery-server
+    image: busybox:1.36
+    command: ['sh', '-c', 'until wget -qO- http://discovery-server:8761/actuator/health; do echo "waiting..."; sleep 5; done']

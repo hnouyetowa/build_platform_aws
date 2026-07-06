@@ -1,0 +1,107 @@
+---
+# PETPLAT-57: Per-Service Metrics Dashboard
+# Shows request rate, error rate, p95/p99 latency for each instrumented service
+# datasource.uid fixed to "prometheus" (enforcement rule)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-per-service
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: petclinic-observability
+    grafana_dashboard: "1"
+data:
+  petclinic-per-service.json: |
+    {
+      "id": null,
+      "uid": "petclinic-per-service",
+      "title": "Petclinic Per-Service Metrics",
+      "description": "Request rate, error rate, p95/p99 latency per service",
+      "tags": ["petclinic", "service"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "time": {"from": "now-1h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "service",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": "label_values(up{job=~\"api-gateway|customers-service|visits-service|vets-service|genai-service\"}, job)",
+            "label": "Service",
+            "multi": false,
+            "includeAll": true,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request Rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "reqps"}},
+          "targets": [
+            {
+              "expr": "sum(rate(http_server_requests_seconds_count{job=\"$service\"}[5m]))",
+              "legendFormat": "RPS",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Error Rate (5xx)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit"}},
+          "targets": [
+            {
+              "expr": "sum(rate(http_server_requests_seconds_count{job=\"$service\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"$service\"}[5m]))",
+              "legendFormat": "Error Rate",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Latency p95 / p99",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s"}},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{job=\"$service\"}[5m]))",
+              "legendFormat": "p95",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            },
+            {
+              "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{job=\"$service\"}[5m]))",
+              "legendFormat": "p99",
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Application Logs",
+          "type": "logs",
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 8},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "options": {"dedupStrategy": "none", "showTime": true, "wrapLogMessage": true},
+          "targets": [
+            {
+              "expr": "{namespace=~\"petclinic-.*\", container=\"$service\"}",
+              "legendFormat": "",
+              "datasource": {"type": "loki", "uid": "loki"}
+            }
+          ]
+        }
+      ]
+    }

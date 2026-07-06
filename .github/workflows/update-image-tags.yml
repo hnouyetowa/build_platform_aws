@@ -1,0 +1,101 @@
+# PETPLAT-50 / PETPLAT-87: Update Helm values with new image tags
+#
+# Triggered by the application repo's build-push.yml via repository_dispatch
+# after images are pushed to ECR. Updates helm-values/{service}.yaml for only
+# the services that were rebuilt, then commits so ArgoCD picks up the change.
+#
+# Flow:
+#   App repo CI → repository_dispatch (app-image-built) → this workflow
+#   → yq updates image.tag → git commit/push → ArgoCD syncs
+
+name: Update Image Tags
+
+on:
+  repository_dispatch:
+    types: [app-image-built]
+
+permissions:
+  contents: write  # required to push the updated helm-values files
+
+jobs:
+  update-tags:
+    name: Update image tags in helm-values
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout platform repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install yq
+        uses: mikefarah/yq@v4.44.3
+
+      - name: Extract payload
+        id: payload
+        run: |
+          SHA="${{ github.event.client_payload.sha }}"
+          SERVICES="${{ github.event.client_payload.services }}"
+
+          if [ -z "$SHA" ]; then
+            echo "ERROR: client_payload.sha is empty" >&2
+            exit 1
+          fi
+          if [ -z "$SERVICES" ]; then
+            echo "ERROR: client_payload.services is empty" >&2
+            exit 1
+          fi
+
+          echo "sha=$SHA"          >> "$GITHUB_OUTPUT"
+          echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
+          echo "Received SHA: $SHA, Services: $SERVICES"
+
+      - name: Update image tags with yq
+        id: update
+        run: |
+          SHA="${{ steps.payload.outputs.sha }}"
+          SERVICES="${{ steps.payload.outputs.services }}"
+          CHANGED=""
+
+          for service in ${SERVICES}; do
+            VALUES_FILE="helm-values/${service}.yaml"
+            if [ ! -f "$VALUES_FILE" ]; then
+              echo "WARNING: $VALUES_FILE not found, skipping $service"
+              continue
+            fi
+            OLD_TAG=$(yq '.image.tag' "$VALUES_FILE")
+            yq -i ".image.tag = \"${SHA}\"" "$VALUES_FILE"
+            echo "  $service: $OLD_TAG → $SHA"
+            CHANGED="$CHANGED $service"
+          done
+
+          echo "changed=${CHANGED# }" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push updated values
+        run: |
+          SHA="${{ steps.payload.outputs.sha }}"
+          SERVICES="${{ steps.payload.outputs.services }}"
+          CHANGED="${{ steps.update.outputs.changed }}"
+
+          if [ -z "$CHANGED" ]; then
+            echo "No helm-values files were updated — nothing to commit"
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add helm-values/
+
+          if git diff --cached --quiet; then
+            echo "helm-values already at SHA $SHA — no commit needed"
+            exit 0
+          fi
+
+          # Format: "ci: update image tags to a1b2c3d (customers-service visits-service)"
+          git commit -m "ci: update image tags to ${SHA} (${SERVICES})"
+          git push
+
+          echo "Pushed helm-values update: ${SHA} (${CHANGED})"
+          echo "ArgoCD will detect the change and sync automatically (dev) or queue for approval (prod)"

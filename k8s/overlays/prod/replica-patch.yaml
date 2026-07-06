@@ -1,0 +1,5 @@
+# Prod overlay: infrastructure services (config, discovery, api-gateway) run with 2 replicas
+# Translated to helm-values/prod.yaml: replicaCount: 2
+- op: replace
+  path: /spec/replicas
+  value: 2
